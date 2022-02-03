@@ -1,6 +1,7 @@
 use std::fs;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use regex::Regex;
+use rayon::prelude::*;
 
 fn load_dictionary(filename: &str) -> Vec<String> {
     println!("Loading dictionary at {}", filename);
@@ -13,6 +14,8 @@ fn load_dictionary(filename: &str) -> Vec<String> {
             words.push(line.to_uppercase());
         }
     }
+    words.sort();
+    words.dedup();
     words
 }
 
@@ -47,9 +50,62 @@ fn generate_wordcache(words: Vec<String>) -> HashMap<String, Vec<String>> {
     cache
 }
 
+fn hs2str(hs: &HashSet<char>) -> String {
+    let mut chars: Vec<char> = hs.iter().cloned().collect();
+    chars.sort_unstable();
+    chars.iter().collect()
+}
+
+fn simulate(guess: &str, solution: &str, wordcache: &HashMap<String, Vec<String>>) -> Vec<String> {
+    //let b_guess = guess.as_bytes();
+    //let b_solution = solution.as_bytes();
+    let mut matching_chars = ['.', '.', '.', '.', '.'];
+    let mut banned_chars = [HashSet::new(), HashSet::new(), HashSet::new(), HashSet::new(), HashSet::new()];
+    let mut required_chars = HashSet::new();
+    for (i, (g, s)) in guess.chars().zip(solution.chars()).enumerate() {
+        if g == s {  // Right letter right position
+            matching_chars[i] = g;
+            required_chars.insert(g);
+        } else if solution.contains(g) {  // Right letter wrong position
+                banned_chars[i].insert(g);
+                required_chars.insert(g);
+        } else {  // Letter not in solution
+            for j in 0..banned_chars.len() {
+                banned_chars[j].insert(g);
+            }
+        }
+    }
+    let mut re_str = String::new();
+    for (m, b) in matching_chars.iter().zip(banned_chars.iter()) {
+        if *m != '.' {
+            re_str.push(*m);
+        } else {
+            re_str += &format!("[^{}]", hs2str(b));
+        }
+    }
+    let re = Regex::new(&re_str).unwrap();
+    wordcache[&hs2str(&required_chars)].iter().filter(|w| re.is_match(w)).cloned().collect()
+}
+
+fn find_worstcase(word: &str, wordcache: &HashMap<String, Vec<String>>) -> String {
+    let mut worst = 0;
+    for target in &wordcache[""] {
+        let remaining = simulate(&word, target, &wordcache).len();
+        if remaining > worst {worst = remaining};
+    }
+    let output = format!("{} - {}", word, worst);
+    println!("{}", output);
+    output
+}
+
 fn main() {
+    fs::write("test.txt", ["test1", "test2", "test3"].join("\n")).expect("Failed to write output");
     let words = load_dictionary("/usr/share/dict/words");
     println!("Hello, world! {} words in dict", words.len());
     let wordcache = generate_wordcache(words);
-    println!("{:?}", wordcache.keys());
+    //let sr = simulate(&wordcache[""][0], &wordcache[""][5000], &wordcache);
+    //println!("{:?}", sr);
+    let results: Vec<String> = wordcache[""].par_iter().map(|w| find_worstcase(w, &wordcache)).collect();
+    fs::write("results.txt", results.join("\n")).expect("Failed to write output");
+    //println!("{:?}", wordcache.keys());
 }
