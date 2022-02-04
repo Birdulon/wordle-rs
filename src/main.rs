@@ -117,7 +117,7 @@ fn simulate(guess: &Word, solution: &Word, mut s: SimState, wordcache: &WordCach
     for (i, (gc, sc)) in guess.letters.iter().zip(solution.letters.iter()).enumerate() {
         let gb = char2bit(*gc);
         if gc == sc {  // Right letter right position
-            s.banned_chars[i] = 255 ^ gb;
+            s.banned_chars[i] = !gb;
         } else if solution.charmask & gb != 0 {  // Right letter wrong position
             s.banned_chars[i] |= gb;
         } else {  // Letter not in solution
@@ -144,7 +144,7 @@ fn find_worstcase(word: &Word, wordcache: &WordCache) -> (String, usize) {
     let mut worst_w = wordcache[&0][0].letters;
     let ss = SimState::default();
     for target in &wordcache[&0] {
-        let remaining = simulate(word, target, ss, &wordcache).0;
+        let remaining = simulate(word, target, ss, wordcache).0;
         if remaining > worst {
             worst = remaining;
             worst_w = target.letters;
