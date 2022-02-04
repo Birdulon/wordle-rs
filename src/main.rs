@@ -37,7 +37,7 @@ fn load_dictionary(filename: &str) -> Vec<Word> {
     let rawfile = fs::read_to_string(filename).unwrap();
     let rawwords = rawfile.split('\n');
     let mut words = Vec::new();
-    let re = Regex::new(&format!("{}{}{}", r"^\w{", WORD_LENGTH, r"}$")).unwrap();
+    let re = Regex::new(&format!("{}{}{}", r"^[A-Za-z]{", WORD_LENGTH, r"}$")).unwrap();
     for line in rawwords {
         if re.is_match(line) {
             words.push(line.to_uppercase());
@@ -64,7 +64,7 @@ fn load_dictionary(filename: &str) -> Vec<Word> {
 
 
 fn char2bit(c: char) -> Charmask {
-    debug_assert!('A' <= c && c <= 'Z');
+    debug_assert!(('A'..='Z').contains(&c));
     1 << (c as u8 - 'A' as u8)
 }
 
