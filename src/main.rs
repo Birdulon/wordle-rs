@@ -3,12 +3,14 @@ use std::collections::HashMap;
 use bitintr::{Lzcnt, Tzcnt};
 use regex::Regex;
 use rayon::prelude::*;
+//use itertools::Itertools;
 
 type Charmask = i32;
 type Achar = i8;  // ASCII char
 
 const WORD_LENGTH: usize = 5;
 const WORD_LENGTH_P: usize = 5;  // Padded for SIMD shenanigans
+const GUESS_DEPTH: usize = 2;
 const A: Achar = 'A' as Achar;
 const Z: Achar = 'Z' as Achar;
 
@@ -56,6 +58,10 @@ fn load_dictionary(filename: &str) -> Vec<Word> {
     words.iter().map(|w| str2word(w)).collect()
 }
 
+fn letters2str(letters: [Achar; WORD_LENGTH]) -> String {
+    letters.iter().map(|x| (*x as u8) as char).collect()
+}
+
 /* fn inc_char(c: char) -> char {
     (c as u8 + 1) as char
 } */
@@ -68,6 +74,16 @@ fn load_dictionary(filename: &str) -> Vec<Word> {
         chars.sort_unstable();
         chars.iter().collect()
     }
+} */
+
+/* fn charmask2str(cm: Charmask) -> String {
+    let mut s = String::default();
+    for i in cm.tzcnt() ..= 32-cm.lzcnt() {
+        if (cm & (1<<i)) != 0 {
+            s += &((A + i as Achar) as u8 as char).to_string();
+        }
+    }
+    s
 } */
 
 
@@ -103,24 +119,31 @@ fn generate_wordcache(words: Vec<Word>) -> WordCache {
 }
 
 fn filter_word(w: &[Charmask; WORD_LENGTH_P], banned_chars: &[Charmask; WORD_LENGTH_P]) -> bool {
-    for i in 0..WORD_LENGTH {
-        if w[i] & banned_chars[i] != 0 {return false;}
-    }
-    true
+    w.iter().zip(banned_chars.iter()).all(|(x,y)| x & y == 0)
+    // for i in 0..WORD_LENGTH {
+    //     if w[i] & banned_chars[i] != 0 {return false;}
+    // }
+    // true
 }
 
-fn simulate(guess: &Word, solution: &Word, mut s: SimState, wordcache: &WordCache) -> usize {
-    s.required_chars |= guess.charmask & solution.charmask;
-    let bans = guess.charmask & !solution.charmask;
+fn simulate(guess_ids: [usize; GUESS_DEPTH], solution_id: usize, mut s: SimState, wordcache: &WordCache) -> usize {
+    let allwords = &wordcache[&0];
+    let solution = allwords[solution_id];
+    let mut bans = 0;
+    for guess_id in guess_ids {
+        let guess = allwords[guess_id];
+        s.required_chars |= guess.charmask & solution.charmask;
+        bans |= guess.charmask & !solution.charmask;
+        for i in 0..WORD_LENGTH {
+            if guess.letters[i] == solution.letters[i] {  // Right letter right position
+                s.banned_chars[i] = !guess.charbits[i];
+            } else if guess.charbits[i] & solution.charmask != 0 {  // Right letter wrong position
+                s.banned_chars[i] |= guess.charbits[i];
+            }
+        }
+    }
     for j in 0..s.banned_chars.len() {
         s.banned_chars[j] |= bans;
-    }
-    for i in 0..WORD_LENGTH {
-        if guess.letters[i] == solution.letters[i] {  // Right letter right position
-            s.banned_chars[i] = !guess.charbits[i];
-        } else if guess.charbits[i] & solution.charmask != 0 {  // Right letter wrong position
-            s.banned_chars[i] |= guess.charbits[i];
-        }
     }
     let cachekey = s.required_chars;
     match wordcache.contains_key(&cachekey) {
@@ -129,44 +152,43 @@ fn simulate(guess: &Word, solution: &Word, mut s: SimState, wordcache: &WordCach
     }
 }
 
-fn find_worstcase(word: &Word, wordcache: &WordCache) -> (String, usize) {
+fn find_worstcase(word_ids: [usize; GUESS_DEPTH], wordcache: &WordCache) -> (String, usize) {
+    let allwords = &wordcache[&0];
+
     let mut worst = 0;
-    let mut worst_w = wordcache[&0][0].letters;
+    let mut worst_w = 0;
     let ss = SimState::default();
-    for target in &wordcache[&0] {
-        let remaining = simulate(word, target, ss, wordcache);
+    for target_id in 0..allwords.len() {
+        let remaining = simulate(word_ids, target_id, ss, wordcache);
         if remaining > worst {
             worst = remaining;
-            worst_w = target.letters;
+            worst_w = target_id;
         };
     }
-    let wordstr: String = word.letters.iter().map(|x| (*x as u8) as char).collect();
-    let worststr: String = worst_w.iter().map(|x| (*x as u8) as char).collect();
+    let wordstr: String = word_ids.map(|i| letters2str(allwords[i].letters)).join(", ");
+    let worststr: String = letters2str(allwords[worst_w].letters);
     let output = format!("{} - {} ({})", wordstr, worst, worststr);
     println!("{}", output);
     (output, worst)
 }
 
-fn charmask2str(cm: Charmask) -> String {
-    let mut s = String::default();
-    for i in cm.tzcnt() ..= 32-cm.lzcnt() {
-        if (cm & (1<<i)) != 0 {
-            s += &((A + i as Achar) as u8 as char).to_string();
-        }
-    }
-    s
-}
-
 fn main() {
     fs::write("test.txt", ["test1", "test2", "test3"].join("\n")).expect("Failed to write output");
     let words = load_dictionary("words");
-    println!("Hello, world! {} words in dict", words.len());
+    let totalwords = words.len();
+    println!("Hello, world! {} words in dict", totalwords);
     let wordcache = generate_wordcache(words);
 
     //let sr = simulate(&wordcache[""][0], &wordcache[""][5000], &wordcache);
     //println!("{:?}", sr);
     
-    let mut results: Vec<(String, usize)> = wordcache[&0].par_iter().map(|w| find_worstcase(w, &wordcache)).collect();
+    //(0..=5).flat_map(|i| (i..=5).map(move |j| (i,j))).map(|(i,j)| print!("{},{}\t", i, j));
+    let mut results: Vec<(String, usize)> =
+       (0..totalwords).into_par_iter().flat_map_iter(|i| (i..totalwords).map(move |j| (i,j)))
+       .map(|(i, j)| find_worstcase([i, j], &wordcache)).collect();
+    // let mut results: Vec<(String, usize)> =
+    //    (0..totalwords).into_par_iter()
+    //    .map(|i| find_worstcase([i], &wordcache)).collect();
     results.sort_by_key(|r| r.1);
     let results_strs: Vec<String> = results.iter().map(|r| r.0.clone()).collect();
     fs::write("results.txt", results_strs.join("\n")).expect("Failed to write output");
