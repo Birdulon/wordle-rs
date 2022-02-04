@@ -88,7 +88,11 @@ fn simulate(guess: &str, solution: &str, wordcache: &HashMap<String, Vec<String>
         }
     }
     let re = Regex::new(&re_str).unwrap();
-    wordcache[&hs2str(&required_chars)].iter().filter(|w| re.is_match(w)).cloned().collect()
+    let cachekey = hs2str(&required_chars);
+    match wordcache.contains_key(&cachekey) {
+        true => wordcache[&cachekey].iter().filter(|w| re.is_match(w)).cloned().collect(),
+        false => Vec::<String>::new(),
+    }
 }
 
 fn find_worstcase(word: &str, wordcache: &HashMap<String, Vec<String>>) -> String {
