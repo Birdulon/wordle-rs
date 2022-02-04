@@ -4,19 +4,25 @@ use bitintr::{Lzcnt, Tzcnt};
 use regex::Regex;
 use rayon::prelude::*;
 
-const WORD_LENGTH: usize = 5;
 type Charmask = i32;
+type Achar = i8;  // ASCII char
+
+const WORD_LENGTH: usize = 5;
+const WORD_LENGTH_P: usize = 8;  // Padded for SIMD shenanigans
+const A: Achar = 'A' as Achar;
+const Z: Achar = 'Z' as Achar;
 
 #[derive(Copy, Clone, Default)]
 struct SimState {
-    banned_chars: [Charmask; WORD_LENGTH],  // Alphabetical bitmask
+    banned_chars: [Charmask; WORD_LENGTH_P],  // Alphabetical bitmask
     required_chars: Charmask
 }
 
 #[derive(Copy, Clone, Default)]
 struct Word {
-    letters: [char; WORD_LENGTH],
-    charmask: Charmask  // All of the characters contained
+    charbits: [Charmask; WORD_LENGTH_P],  // Each letter in bitmask form
+    charmask: Charmask,                   // All of the characters contained
+    letters: [Achar; WORD_LENGTH]
 }
 
 type WordCache = HashMap<Charmask, Vec<Word>>;
@@ -25,9 +31,11 @@ fn str2word(s: &str) -> Word {
     let mut word = Word::default();
     let mut iter = s.chars();
     for i in 0..WORD_LENGTH {
-        let c = iter.next().unwrap();
+        let c = iter.next().unwrap() as Achar;
+        let cb = char2bit(c);
+        word.charbits[i] = cb;
         word.letters[i] = c;
-        word.charmask |= char2bit(c);
+        word.charmask |= cb;
     }
     word
 }
@@ -63,17 +71,17 @@ fn load_dictionary(filename: &str) -> Vec<Word> {
 } */
 
 
-fn char2bit(c: char) -> Charmask {
-    debug_assert!(('A'..='Z').contains(&c));
-    1 << (c as u8 - 'A' as u8)
+fn char2bit(c: Achar) -> Charmask {
+    debug_assert!((A..=Z).contains(&c));
+    1 << (c - A)
 }
 
-fn cm2char(cm: Charmask, offset: i8) -> char {
-    (((31 - cm.lzcnt() as i8) + 'A' as i8 + offset) as u8) as char
+fn cm2char(cm: Charmask, offset: i8) -> Achar {
+    (((31 - cm.lzcnt() as i8) + A + offset) as u8) as Achar
 }
 
 fn _generate_wordcache_nested(cache: &mut WordCache, subcache: &[Word], key: Charmask, depth: u8) {
-    for c in cm2char(key, 1)..='Z' {
+    for c in cm2char(key, 1)..=Z {
         let cb = char2bit(c);
         let sc2: Vec<Word> = subcache.iter().filter(|w| (w.charmask & cb) == cb).cloned().collect();
         if !sc2.is_empty() {
@@ -88,18 +96,18 @@ fn _generate_wordcache_nested(cache: &mut WordCache, subcache: &[Word], key: Cha
 
 fn generate_wordcache(words: Vec<Word>) -> WordCache {
     let mut cache: WordCache = HashMap::new();
-    let subcache: Vec<Word> = words.iter().cloned().collect();
+    let subcache: Vec<Word> = words.to_vec();
     _generate_wordcache_nested(&mut cache, &subcache, 0, 5);
     cache.insert(0, words);
     cache
 }
 
-fn filter_word(w: &Word, banned_chars: &[Charmask; 5], required_chars: Charmask) -> bool {
+fn filter_word(w: &Word, banned_chars: &[Charmask; WORD_LENGTH_P], required_chars: Charmask) -> bool {
     if w.charmask & required_chars != required_chars {
         return false;
     }
-    for (c, bans) in w.letters.iter().zip(banned_chars.iter()) {
-        if char2bit(*c) & bans != 0 {
+    for (cb, bans) in w.charbits.iter().zip(banned_chars.iter()) {
+        if cb & bans != 0 {
             return false;
         }
     }
@@ -140,7 +148,7 @@ fn find_worstcase(word: &Word, wordcache: &WordCache) -> (String, usize) {
         let remaining = simulate(word, target, ss, &wordcache).0.len();
         if remaining > worst {worst = remaining};
     }
-    let wordstr: String = word.letters.iter().collect();
+    let wordstr: String = word.letters.iter().map(|x| (*x as u8) as char).collect();
     let output = format!("{} - {}", wordstr, worst);
     println!("{}", output);
     (output, worst)
