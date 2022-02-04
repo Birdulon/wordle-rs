@@ -52,8 +52,12 @@ fn generate_wordcache(words: Vec<String>) -> HashMap<String, Vec<String>> {
 
 fn hs2str(hs: &HashSet<char>) -> String {
     let mut chars: Vec<char> = hs.iter().cloned().collect();
-    chars.sort_unstable();
-    chars.iter().collect()
+    if chars.is_empty() {
+        "".to_string()
+    } else {
+        chars.sort_unstable();
+        chars.iter().collect()
+    }
 }
 
 fn simulate(guess: &str, solution: &str, wordcache: &HashMap<String, Vec<String>>) -> Vec<String> {
@@ -100,7 +104,7 @@ fn find_worstcase(word: &str, wordcache: &HashMap<String, Vec<String>>) -> Strin
 
 fn main() {
     fs::write("test.txt", ["test1", "test2", "test3"].join("\n")).expect("Failed to write output");
-    let words = load_dictionary("/usr/share/dict/words");
+    let words = load_dictionary("words");
     println!("Hello, world! {} words in dict", words.len());
     let wordcache = generate_wordcache(words);
     //let sr = simulate(&wordcache[""][0], &wordcache[""][5000], &wordcache);
