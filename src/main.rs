@@ -78,7 +78,6 @@ fn char2bit(c: Achar) -> Charmask {
 
 fn cm2char(cm: Charmask, offset: i8) -> Achar {
     (((31 - cm.lzcnt() as i8) + A + offset) as u8) as Achar
-    //(((cm.tzcnt() as i8) + A + offset) as u8) as Achar
 }
 
 fn _generate_wordcache_nested(cache: &mut WordCache, subcache: &[Word], key: Charmask, depth: u8) {
@@ -103,39 +102,30 @@ fn generate_wordcache(words: Vec<Word>) -> WordCache {
     cache
 }
 
-fn filter_word(w: &Word, banned_chars: &[Charmask; WORD_LENGTH_P]) -> bool {
-    for (cb, bans) in w.charbits.iter().zip(banned_chars.iter()) {
-        if cb & bans != 0 {
-            return false;
-        }
+fn filter_word(w: &[Charmask; WORD_LENGTH_P], banned_chars: &[Charmask; WORD_LENGTH_P]) -> bool {
+    for i in 0..WORD_LENGTH {
+        if w[i] & banned_chars[i] != 0 {return false;}
     }
     true
 }
 
-fn simulate(guess: &Word, solution: &Word, mut s: SimState, wordcache: &WordCache) -> (usize, SimState) {
+fn simulate(guess: &Word, solution: &Word, mut s: SimState, wordcache: &WordCache) -> usize {
     s.required_chars |= guess.charmask & solution.charmask;
-    for (i, (gc, sc)) in guess.letters.iter().zip(solution.letters.iter()).enumerate() {
-        let gb = char2bit(*gc);
-        if gc == sc {  // Right letter right position
-            s.banned_chars[i] = !gb;
-        } else if solution.charmask & gb != 0 {  // Right letter wrong position
-            s.banned_chars[i] |= gb;
-        } else {  // Letter not in solution
-            for j in 0..s.banned_chars.len() {
-                s.banned_chars[j] |= gb;
-            }
+    let bans = guess.charmask & !solution.charmask;
+    for j in 0..s.banned_chars.len() {
+        s.banned_chars[j] |= bans;
+    }
+    for i in 0..WORD_LENGTH {
+        if guess.letters[i] == solution.letters[i] {  // Right letter right position
+            s.banned_chars[i] = !guess.charbits[i];
+        } else if guess.charbits[i] & solution.charmask != 0 {  // Right letter wrong position
+            s.banned_chars[i] |= guess.charbits[i];
         }
     }
     let cachekey = s.required_chars;
     match wordcache.contains_key(&cachekey) {
-        true => (
-            wordcache[&cachekey].iter().filter(|w| filter_word(w, &s.banned_chars)).count(),
-            s
-        ),
-        false => (
-            0,
-            s
-        ),
+        true => wordcache[&cachekey].iter().filter(|w| filter_word(&w.charbits, &s.banned_chars)).count(),
+        false => 0,
     }
 }
 
@@ -144,7 +134,7 @@ fn find_worstcase(word: &Word, wordcache: &WordCache) -> (String, usize) {
     let mut worst_w = wordcache[&0][0].letters;
     let ss = SimState::default();
     for target in &wordcache[&0] {
-        let remaining = simulate(word, target, ss, wordcache).0;
+        let remaining = simulate(word, target, ss, wordcache);
         if remaining > worst {
             worst = remaining;
             worst_w = target.letters;
