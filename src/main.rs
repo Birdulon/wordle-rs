@@ -8,7 +8,7 @@ type Charmask = i32;
 type Achar = i8;  // ASCII char
 
 const WORD_LENGTH: usize = 5;
-const WORD_LENGTH_P: usize = 8;  // Padded for SIMD shenanigans
+const WORD_LENGTH_P: usize = 5;  // Padded for SIMD shenanigans
 const A: Achar = 'A' as Achar;
 const Z: Achar = 'Z' as Achar;
 
@@ -78,6 +78,7 @@ fn char2bit(c: Achar) -> Charmask {
 
 fn cm2char(cm: Charmask, offset: i8) -> Achar {
     (((31 - cm.lzcnt() as i8) + A + offset) as u8) as Achar
+    //(((cm.tzcnt() as i8) + A + offset) as u8) as Achar
 }
 
 fn _generate_wordcache_nested(cache: &mut WordCache, subcache: &[Word], key: Charmask, depth: u8) {
@@ -102,10 +103,7 @@ fn generate_wordcache(words: Vec<Word>) -> WordCache {
     cache
 }
 
-fn filter_word(w: &Word, banned_chars: &[Charmask; WORD_LENGTH_P], required_chars: Charmask) -> bool {
-    if w.charmask & required_chars != required_chars {
-        return false;
-    }
+fn filter_word(w: &Word, banned_chars: &[Charmask; WORD_LENGTH_P]) -> bool {
     for (cb, bans) in w.charbits.iter().zip(banned_chars.iter()) {
         if cb & bans != 0 {
             return false;
@@ -114,7 +112,7 @@ fn filter_word(w: &Word, banned_chars: &[Charmask; WORD_LENGTH_P], required_char
     true
 }
 
-fn simulate(guess: &Word, solution: &Word, mut s: SimState, wordcache: &WordCache) -> (Vec<Word>, SimState) {
+fn simulate(guess: &Word, solution: &Word, mut s: SimState, wordcache: &WordCache) -> (usize, SimState) {
     s.required_chars |= guess.charmask & solution.charmask;
     for (i, (gc, sc)) in guess.letters.iter().zip(solution.letters.iter()).enumerate() {
         let gb = char2bit(*gc);
@@ -131,11 +129,11 @@ fn simulate(guess: &Word, solution: &Word, mut s: SimState, wordcache: &WordCach
     let cachekey = s.required_chars;
     match wordcache.contains_key(&cachekey) {
         true => (
-            wordcache[&cachekey].iter().filter(|w| filter_word(w, &s.banned_chars, s.required_chars)).cloned().collect(),
+            wordcache[&cachekey].iter().filter(|w| filter_word(w, &s.banned_chars)).count(),
             s
         ),
         false => (
-            Vec::<Word>::new(),
+            0,
             s
         ),
     }
@@ -143,15 +141,30 @@ fn simulate(guess: &Word, solution: &Word, mut s: SimState, wordcache: &WordCach
 
 fn find_worstcase(word: &Word, wordcache: &WordCache) -> (String, usize) {
     let mut worst = 0;
+    let mut worst_w = wordcache[&0][0].letters;
     let ss = SimState::default();
     for target in &wordcache[&0] {
-        let remaining = simulate(word, target, ss, &wordcache).0.len();
-        if remaining > worst {worst = remaining};
+        let remaining = simulate(word, target, ss, &wordcache).0;
+        if remaining > worst {
+            worst = remaining;
+            worst_w = target.letters;
+        };
     }
     let wordstr: String = word.letters.iter().map(|x| (*x as u8) as char).collect();
-    let output = format!("{} - {}", wordstr, worst);
+    let worststr: String = worst_w.iter().map(|x| (*x as u8) as char).collect();
+    let output = format!("{} - {} ({})", wordstr, worst, worststr);
     println!("{}", output);
     (output, worst)
+}
+
+fn charmask2str(cm: Charmask) -> String {
+    let mut s = String::default();
+    for i in cm.tzcnt() ..= 32-cm.lzcnt() {
+        if (cm & (1<<i)) != 0 {
+            s += &((A + i as Achar) as u8 as char).to_string();
+        }
+    }
+    s
 }
 
 fn main() {
@@ -159,11 +172,16 @@ fn main() {
     let words = load_dictionary("words");
     println!("Hello, world! {} words in dict", words.len());
     let wordcache = generate_wordcache(words);
+
     //let sr = simulate(&wordcache[""][0], &wordcache[""][5000], &wordcache);
     //println!("{:?}", sr);
+    
     let mut results: Vec<(String, usize)> = wordcache[&0].par_iter().map(|w| find_worstcase(w, &wordcache)).collect();
     results.sort_by_key(|r| r.1);
     let results_strs: Vec<String> = results.iter().map(|r| r.0.clone()).collect();
     fs::write("results.txt", results_strs.join("\n")).expect("Failed to write output");
-    //println!("{:?}", wordcache.keys());
+
+    // let mut cachekeys: Vec<String> = wordcache.keys().map(|k| charmask2str(*k)).collect();
+    // cachekeys.sort();
+    // println!("{:?}", cachekeys);
 }
