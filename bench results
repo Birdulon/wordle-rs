@@ -1,0 +1,92 @@
+hashmap cache, no vectorisation
+cargo +nightly run --release  86.87s user 0.66s system 655% cpu 13.363 total
+cargo +nightly -q run --release >> benching.txt  83.66s user 0.39s system 699% cpu 12.014 total
+cargo +nightly -q run --release >> benching.txt  82.86s user 0.29s system 717% cpu 11.582 total
+cargo +nightly -q run --release >> benching.txt  82.93s user 0.29s system 717% cpu 11.600 total
+cargo +nightly -q run --release >> benching.txt  83.17s user 0.31s system 709% cpu 11.770 total
+cargo +nightly -q run --release >> benching.txt  86.69s user 0.34s system 717% cpu 12.123 total
+cargo +nightly -q run --release >> benching.txt  90.43s user 0.36s system 720% cpu 12.601 total
+cargo +nightly -q run --release >> benching.txt  92.60s user 0.36s system 719% cpu 12.914 total
+cargo +nightly -q run --release >> benching.txt  94.36s user 0.38s system 722% cpu 13.115 total
+cargo +nightly -q run --release >> benching.txt  95.26s user 0.38s system 721% cpu 13.254 total
+cargo +nightly -q run --release >> benching.txt  96.41s user 0.38s system 724% cpu 13.363 total
+cargo +nightly -q run --release >> benching.txt  97.50s user 0.38s system 725% cpu 13.488 total
+
+hashmap cache, vectorisation attempted
+cargo +nightly -q run --release >> benching.txt  19.68s user 0.09s system 697% cpu 2.835 total
+cargo +nightly -q run --release >> benching.txt  19.56s user 0.07s system 709% cpu 2.769 total
+cargo +nightly -q run --release >> benching.txt  19.81s user 0.08s system 692% cpu 2.873 total
+cargo +nightly -q run --release >> benching.txt  19.60s user 0.08s system 702% cpu 2.800 total
+cargo +nightly -q run --release >> benching.txt  20.10s user 0.08s system 713% cpu 2.828 total
+cargo +nightly -q run --release >> benching.txt  20.35s user 0.09s system 712% cpu 2.868 total
+cargo +nightly -q run --release >> benching.txt  20.98s user 0.09s system 695% cpu 3.029 total
+cargo +nightly -q run --release >> benching.txt  21.33s user 0.09s system 712% cpu 3.008 total
+cargo +nightly -q run --release >> benching.txt  21.64s user 0.10s system 711% cpu 3.057 total
+cargo +nightly -q run --release >> benching.txt  21.94s user 0.09s system 713% cpu 3.088 total
+cargo +nightly -q run --release >> benching.txt  22.20s user 0.09s system 717% cpu 3.107 total
+cargo +nightly -q run --release >> benching.txt  22.44s user 0.10s system 713% cpu 3.161 total
+cargo +nightly -q run --release >> benching.txt  22.68s user 0.10s system 708% cpu 3.215 total
+cargo +nightly -q run --release >> benching.txt  23.05s user 0.10s system 713% cpu 3.246 total
+cargo +nightly -q run --release >> benching.txt  23.53s user 0.10s system 718% cpu 3.288 total
+cargo +nightly -q run --release >> benching.txt  23.51s user 0.10s system 712% cpu 3.315 total
+cargo +nightly -q run --release >> benching.txt  23.77s user 0.10s system 715% cpu 3.338 total
+cargo +nightly -q run --release >> benching.txt  23.88s user 0.11s system 701% cpu 3.419 total
+cargo +nightly -q run --release >> benching.txt  23.99s user 0.10s system 710% cpu 3.391 total
+cargo +nightly -q run --release >> benching.txt  24.15s user 0.11s system 707% cpu 3.428 total
+cargo +nightly -q run --release >> benching.txt  24.21s user 0.10s system 687% cpu 3.538 total
+cargo +nightly -q run --release >> benching.txt  24.58s user 0.10s system 718% cpu 3.438 total
+cargo +nightly -q run --release >> benching.txt  24.84s user 0.11s system 712% cpu 3.503 total
+cargo +nightly -q run --release >> benching.txt  24.91s user 0.10s system 720% cpu 3.472 total
+cargo +nightly -q run --release >> benching.txt  25.49s user 0.11s system 700% cpu 3.655 total
+cargo +nightly -q run --release >> benching.txt  25.10s user 0.11s system 716% cpu 3.517 total
+cargo +nightly -q run --release >> benching.txt  25.08s user 0.13s system 712% cpu 3.539 total
+cargo +nightly -q run --release >> benching.txt  25.32s user 0.13s system 697% cpu 3.651 total
+cargo +nightly -q run --release >> benching.txt  25.45s user 0.11s system 713% cpu 3.581 total
+cargo +nightly -q run --release >> benching.txt  25.97s user 0.11s system 713% cpu 3.657 total
+cargo +nightly -q run --release >> benching.txt  25.79s user 0.12s system 704% cpu 3.676 total
+
+hashmap cache, vectorisation attempted, branched
+cargo +nightly -q run --release >> benching.txt  19.90s user 0.09s system 713% cpu 2.802 total
+cargo +nightly -q run --release >> benching.txt  19.94s user 0.08s system 702% cpu 2.851 total
+cargo +nightly -q run --release >> benching.txt  20.18s user 0.09s system 714% cpu 2.836 total
+cargo +nightly -q run --release >> benching.txt  21.22s user 0.07s system 736% cpu 2.892 total
+cargo +nightly -q run --release >> benching.txt  21.59s user 0.09s system 721% cpu 3.002 total
+cargo +nightly -q run --release >> benching.txt  21.24s user 0.09s system 710% cpu 3.003 total
+cargo +nightly -q run --release >> benching.txt  21.77s user 0.10s system 714% cpu 3.059 total
+cargo +nightly -q run --release >> benching.txt  22.31s user 0.09s system 711% cpu 3.146 total
+cargo +nightly -q run --release >> benching.txt  22.54s user 0.09s system 706% cpu 3.202 total
+cargo +nightly -q run --release >> benching.txt  22.79s user 0.10s system 711% cpu 3.217 total
+cargo +nightly -q run --release >> benching.txt  22.98s user 0.10s system 719% cpu 3.209 total
+cargo +nightly -q run --release >> benching.txt  23.10s user 0.10s system 711% cpu 3.261 total
+cargo +nightly -q run --release >> benching.txt  23.57s user 0.10s system 702% cpu 3.367 total
+cargo +nightly -q run --release >> benching.txt  24.16s user 0.06s system 773% cpu 3.130 total
+cargo +nightly -q run --release >> benching.txt  24.32s user 0.08s system 747% cpu 3.263 total
+cargo +nightly -q run --release >> benching.txt  23.97s user 0.11s system 709% cpu 3.394 total
+cargo +nightly -q run --release >> benching.txt  24.23s user 0.10s system 714% cpu 3.404 total
+
+
+10x HashMap test
+cargo +nightly -q run --release  292.38s user 0.99s system 727% cpu 40.346 total
+cargo +nightly -q run --release  297.01s user 1.09s system 728% cpu 40.912 total
+
+10x BTreeMap test
+cargo +nightly -q run --release  237.93s user 0.88s system 726% cpu 32.876 total
+cargo +nightly -q run --release  242.33s user 0.91s system 727% cpu 33.452 total
+
+10x AHash HashMap test
+cargo +nightly -q run --release  235.72s user 0.84s system 733% cpu 32.233 total
+cargo +nightly -q run --release  234.09s user 0.89s system 725% cpu 32.393 total
+
+(One) 1x hash_hasher HashMap test
+cargo +nightly -q run --release  141.74s user 0.68s system 713% cpu 19.947 total
+
+10x fx HashMap test
+cargo +nightly -q run --release  298.29s user 1.39s system 693% cpu 43.222 total
+cargo +nightly -q run --release  334.65s user 1.33s system 717% cpu 46.820 total
+
+10x xxhash HashMap test
+cargo +nightly -q run --release  213.30s user 0.81s system 723% cpu 29.588 total
+cargo +nightly -q run --release  222.54s user 0.86s system 721% cpu 30.945 total
+cargo +nightly -q run --release  243.07s user 0.86s system 714% cpu 34.131 total
+cargo +nightly -q run --release  267.71s user 1.03s system 715% cpu 37.579 total
+cargo +nightly -q run --release  275.61s user 1.08s system 713% cpu 38.795 total

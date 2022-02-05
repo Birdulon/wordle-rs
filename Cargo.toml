@@ -11,3 +11,5 @@ rayon = "1.5"
 bitintr = "0.3.0"
 itertools = "0.10.2"
 array-init = "2.0.0"
+#ahash = "0.7.6"
+#xxhash-rust = {version = "0.8.2", features = ["xxh3"]}

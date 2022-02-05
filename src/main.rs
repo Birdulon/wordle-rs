@@ -1,12 +1,16 @@
 #![allow(dead_code)]
 #![allow(unused_imports)]
 use std::fs;
-use std::collections::HashMap;
+use std::collections::{HashMap, BTreeMap};
 use bitintr::{Lzcnt, Tzcnt};
 use regex::Regex;
 use rayon::prelude::*;
 use itertools::zip;
 use array_init::array_init;
+
+// use ahash::{AHasher, RandomState};
+// use xxhash_rust::xxh3::Xxh3;
+// use std::hash::BuildHasherDefault;
 
 type Charmask = i32;
 type Achar = i8;  // ASCII char
@@ -15,7 +19,8 @@ const WORD_LENGTH: usize = 5;
 const WORD_LENGTH_P: usize = 5;  // Padded for SIMD shenanigans
 const GUESS_DEPTH: usize = 1;  // TODO: Change this whenever working at different depths
 const N_SOLUTIONS: usize = 2315;
-const IDX_ALL_WORDS: Charmask = (1<<26) - 1;
+const CACHE_SIZE: usize = 1<<26;
+const IDX_ALL_WORDS: Charmask = (CACHE_SIZE as Charmask) - 1;
 const IDX_VALID_SOLUTIONS: Charmask = 0;
 const A: Achar = 'A' as Achar;
 const Z: Achar = 'Z' as Achar;
@@ -27,7 +32,15 @@ struct Word {
     //letters: [Achar; WORD_LENGTH]
 }
 
-type WordCache = HashMap<Charmask, Vec<Word>>;
+// type WordCache = HashMap<Charmask, Vec<Word>, RandomState>;  // ahash
+// type WordCache = HashMap<Charmask, Vec<Word>, BuildHasherDefault<Xxh3>>;
+type WordCache = BTreeMap<Charmask, Vec<Word>>;
+// type WordCache = HashMap<Charmask, Vec<Word>>;  // Default hash is slower than BTree
+// type WordCacheArr = [&Vec<Word>; CACHE_SIZE];
+
+fn default_wordcache() -> WordCache {
+    WordCache::default()
+}
 
 
 fn char2bit(c: Achar) -> Charmask {
@@ -115,7 +128,7 @@ fn _generate_wordcache_nested(cache: &mut WordCache, subcache: &[Word], key: Cha
 }
 
 fn generate_wordcache(valid_words: Vec<Word>) -> WordCache {
-    let mut cache: WordCache = HashMap::new();
+    let mut cache: WordCache = default_wordcache();
     let valid_solutions: Vec<Word> = valid_words[..N_SOLUTIONS].to_vec();  // Hacky way to separate the valid solutions from the larger guessing list
     _generate_wordcache_nested(&mut cache, &valid_solutions, 0, 5);
     cache.insert(IDX_VALID_SOLUTIONS, valid_solutions);
@@ -222,6 +235,9 @@ fn main() {
     
     // Depth-1 full
     let mut results: Vec<(String, usize)> = (0..totalwords).into_par_iter().map(|i| simulate(all_words[i], &wordcache)).collect();
+    for _ in 0..9 {  // Benching
+        results = (0..totalwords).into_par_iter().map(|i| simulate(all_words[i], &wordcache)).collect();
+    }
 
     // Depth-3 (word1,word2,?)
     // let i1 = find_word_id_from_str("CARET", &wordcache[&0]);
