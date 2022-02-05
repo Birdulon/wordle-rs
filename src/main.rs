@@ -11,14 +11,9 @@ type Achar = i8;  // ASCII char
 const WORD_LENGTH: usize = 5;
 const WORD_LENGTH_P: usize = 5;  // Padded for SIMD shenanigans
 const GUESS_DEPTH: usize = 1;  // TODO: Change this whenever working at different depths
+const N_SOLUTIONS: usize = 2315;
 const A: Achar = 'A' as Achar;
 const Z: Achar = 'Z' as Achar;
-
-#[derive(Copy, Clone, Default)]
-struct SimState {
-    banned_chars: [Charmask; WORD_LENGTH_P],  // Alphabetical bitmask
-    required_chars: Charmask
-}
 
 #[derive(Copy, Clone, Default)]
 struct Word {
@@ -91,8 +86,8 @@ fn load_dictionary(filename: &str) -> Vec<Word> {
             words.push(line.to_uppercase());
         }
     }
-    words.sort();
-    words.dedup();
+    //words.sort();
+    //words.dedup();
     words.iter().map(|w| str2word(w)).collect()
 }
 
@@ -110,11 +105,12 @@ fn _generate_wordcache_nested(cache: &mut WordCache, subcache: &[Word], key: Cha
     }
 }
 
-fn generate_wordcache(words: Vec<Word>) -> WordCache {
+fn generate_wordcache(valid_words: Vec<Word>) -> WordCache {
     let mut cache: WordCache = HashMap::new();
-    let subcache: Vec<Word> = words.to_vec();
-    _generate_wordcache_nested(&mut cache, &subcache, 0, 5);
-    cache.insert(0, words);
+    let valid_solutions: Vec<Word> = valid_words[..N_SOLUTIONS].to_vec();  // Hacky way to separate the valid solutions from the larger guessing list
+    _generate_wordcache_nested(&mut cache, &valid_solutions, 0, 5);
+    cache.insert(0, valid_solutions);
+    cache.insert(-1, valid_words);
     cache
 }
 
@@ -122,47 +118,49 @@ fn filter_word(w: &[Charmask; WORD_LENGTH_P], banned_chars: &[Charmask; WORD_LEN
     zip(w, banned_chars).all(|(x,y)| x & y == 0)
 }
 
-fn simulate(guess_ids: [usize; GUESS_DEPTH], solution_id: usize, mut s: SimState, wordcache: &WordCache) -> usize {
-    let allwords = &wordcache[&0];
-    let solution = allwords[solution_id];
+fn simulate(guess_ids: [usize; GUESS_DEPTH], solution_id: usize, wordcache: &WordCache) -> usize {
+    let valid_words = &wordcache[&-1];
+    let solution = valid_words[solution_id];  // Technically this should never cross past N_SOLUTIONS or it breaks cache guarantees
+    let mut required_chars: Charmask = 0;
+    let mut banned_chars: [Charmask; WORD_LENGTH] = [0; WORD_LENGTH];
     let mut bans = 0;
     for guess_id in guess_ids {
-        let guess = allwords[guess_id];
-        s.required_chars |= guess.charmask & solution.charmask;
+        let guess = valid_words[guess_id];
+        required_chars |= guess.charmask & solution.charmask;
         bans |= guess.charmask & !solution.charmask;
         for i in 0..WORD_LENGTH {
             if guess.letters[i] == solution.letters[i] {  // Right letter right position
-                s.banned_chars[i] = !guess.charbits[i];
+                banned_chars[i] = !guess.charbits[i];
             } else if guess.charbits[i] & solution.charmask != 0 {  // Right letter wrong position
-                s.banned_chars[i] |= guess.charbits[i];
+                banned_chars[i] |= guess.charbits[i];
             }
         }
     }
-    for j in 0..s.banned_chars.len() {
-        s.banned_chars[j] |= bans;
+    for j in 0..WORD_LENGTH {
+        banned_chars[j] |= bans;
     }
-    let cachekey = s.required_chars;
+    let cachekey = required_chars;
     match wordcache.contains_key(&cachekey) {
-        true => wordcache[&cachekey].iter().filter(|w| filter_word(&w.charbits, &s.banned_chars)).count(),
+        true => wordcache[&cachekey].iter().filter(|w| filter_word(&w.charbits, &banned_chars)).count(),
         false => 0,
     }
 }
 
 fn find_worstcase(word_ids: [usize; GUESS_DEPTH], wordcache: &WordCache) -> (String, usize) {
-    let allwords = &wordcache[&0];
+    let valid_words = &wordcache[&-1];
+    let valid_solutions = &wordcache[&0];
 
     let mut worst = 0;
     let mut worst_w = 0;
-    let ss = SimState::default();
-    for target_id in 0..allwords.len() {
-        let remaining = simulate(word_ids, target_id, ss, wordcache);
+    for target_id in 0..valid_solutions.len() {
+        let remaining = simulate(word_ids, target_id, wordcache);
         if remaining > worst {
             worst = remaining;
             worst_w = target_id;
         };
     }
-    let wordstr: String = word_ids.map(|i| letters2str(allwords[i].letters)).join(", ");
-    let worststr: String = letters2str(allwords[worst_w].letters);
+    let wordstr: String = word_ids.map(|i| letters2str(valid_words[i].letters)).join(", ");
+    let worststr: String = letters2str(valid_words[worst_w].letters);
     let output = format!("{} - {} ({})", wordstr, worst, worststr);
     println!("{}", output);
     (output, worst)
