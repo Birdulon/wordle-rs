@@ -38,38 +38,56 @@ WORDS_BM = np.bitwise_or.reduce(WORDS_B, 1)
 WORDS_B_BM = np.vstack((WORDS_B.T, [WORDS_BM])).T  # Bitmask in last column
 
 
-def simulate(guess_ids, solution_id):
-    required_chars = 0
-    banned_chars = np.zeros(WORD_LENGTH, Charmask)
-    for guess_id in guess_ids:
-        required_chars |= WORDS_BM[guess_id] & WORDS_BM[solution_id]
-        banned_chars |= WORDS_BM[guess_id] & ~WORDS_BM[solution_id]
-    reqs_slice = (WORDS_BM & required_chars) == required_chars
-    return sum((WORDS_B[reqs_slice] & banned_chars).any(1))
+def _generate_wordcache_nested(cache, subcache, keymask, depth, lastidx):
+    # Guess we'll have subcache as WORDS_BM for now
+    for idx in range(lastidx, 26):
+        ib = 1<<idx
+        sc2 = subcache[subcache[:,-1] & keymask == keymask]
+        if len(sc2) > 0:
+            cache[keymask] = sc2
+            km2 = keymask | ib
+            if depth > 0:
+                _generate_wordcache_nested(cache, sc2, km2, depth-1, idx+1)
 
-def find_worstcase(guess_ids):
-    worst_idx = 0
+def generate_wordcache(valid_words):
+    valid_solutions = valid_words[:N_SOLUTIONS]
+    cache = {}
+    _generate_wordcache_nested(cache, valid_solutions, 0, 5, 0)
+    return cache
+
+
+def simulate(guess_ids):
+    # We can merge all of our guesses into a single set of masks
+    guess_aggregate = np.bitwise_or.reduce(WORDS_B_BM[guess_ids], 0)
+    # We can check our guess contents against all possible solutions
+    required_chars = guess_aggregate[-1] & WORDS_BM[:N_SOLUTIONS]
+    banned_chars = np.tile(guess_aggregate[-1] & ~WORDS_BM[:N_SOLUTIONS], (5,1)).T
+    # Now we need to go through each character position and determine hits and misses
+    hits = guess_aggregate[:-1] & WORDS_B[:N_SOLUTIONS]
+    banned_chars |= guess_aggregate[:-1] & ~WORDS_B[:N_SOLUTIONS]
+    banned_chars[hits > 0] |= ~hits[hits > 0]  # Feels a bit dodge but can't think of anything better
+
     worst_remaining = 0
-    for solution_id in range(0, N_SOLUTIONS):
-        remaining = simulate(guess_ids, solution_id)
-        if remaining > worst_remaining:
-            worst_remaining = remaining
-            worst_idx = solution_id
+    worst_idx = 0
+    print('About to loop')
+    for sol in range(0, N_SOLUTIONS):
+        if required_chars[sol] in CACHE:
+            remaining = sum(~(CACHE[required_chars[sol]][:,:-1] & banned_chars[sol,:]).any(1))
+            if remaining > worst_remaining:
+                worst_remaining = remaining
+                worst_idx = sol
+    print(f'Completed {guess_ids} of {len(WORDS_B)} - {worst_remaining} words against solution {worst_idx}')
     return worst_remaining, worst_idx
-
-# def _generate_wordcache_nested(cache, subcache, keymask, depth, lastidx):
-#     # Guess we'll have subcache as WORDS_BM for now
-#     for idx in range(lastidx, 26):
-#         ib = 1<<idx
-#         sc2 = WORDS_BM[]
-
-# def generate_wordcache(valid_words):
-#     valid_solutions = valid_words[:N_SOLUTIONS]
 
 t1 = perf_counter()
 
-worst_per_guess = [find_worstcase([guess]) for guess in range(0, len(WORDS_B))]
+CACHE = generate_wordcache(WORDS_B_BM)
+print(f'Generated cache with {len(CACHE)} keys')
 
 t2 = perf_counter()
 
-print(f'Setup time: {t1-t0}    Loop time: {t2-t1}')
+worst_per_guess = [simulate([guess]) for guess in range(0, 1000)]
+
+t3 = perf_counter()
+
+print(f'Setup time: {t1-t0} \tCachegen time: {t2-t1} \tLoop time: {t3-t2}')
