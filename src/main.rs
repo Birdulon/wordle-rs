@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use bitintr::{Lzcnt, Tzcnt};
 use regex::Regex;
 use rayon::prelude::*;
-//use itertools::Itertools;
+use itertools::zip;
 
 type Charmask = i32;
 type Achar = i8;  // ASCII char
@@ -119,11 +119,7 @@ fn generate_wordcache(words: Vec<Word>) -> WordCache {
 }
 
 fn filter_word(w: &[Charmask; WORD_LENGTH_P], banned_chars: &[Charmask; WORD_LENGTH_P]) -> bool {
-    w.iter().zip(banned_chars.iter()).all(|(x,y)| x & y == 0)
-    // for i in 0..WORD_LENGTH {
-    //     if w[i] & banned_chars[i] != 0 {return false;}
-    // }
-    // true
+    zip(w, banned_chars).all(|(x,y)| x & y == 0)
 }
 
 fn simulate(guess_ids: [usize; GUESS_DEPTH], solution_id: usize, mut s: SimState, wordcache: &WordCache) -> usize {
