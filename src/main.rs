@@ -10,7 +10,7 @@ type Achar = i8;  // ASCII char
 
 const WORD_LENGTH: usize = 5;
 const WORD_LENGTH_P: usize = 5;  // Padded for SIMD shenanigans
-const GUESS_DEPTH: usize = 5;
+const GUESS_DEPTH: usize = 2;
 const A: Achar = 'A' as Achar;
 const Z: Achar = 'Z' as Achar;
 
@@ -175,7 +175,7 @@ fn find_word_id_from_str(s: &str, words: &Vec<Word>) -> usize {
 
 fn main() {
     fs::write("test.txt", ["test1", "test2", "test3"].join("\n")).expect("Failed to write output");
-    let words = load_dictionary("words");
+    let words = load_dictionary("wordle-wordlist");
     let totalwords = words.len();
     println!("Hello, world! {} words in dict", totalwords);
     let wordcache = generate_wordcache(words);
@@ -186,9 +186,9 @@ fn main() {
     //(0..=5).flat_map(|i| (i..=5).map(move |j| (i,j))).map(|(i,j)| print!("{},{}\t", i, j));
     
     // Depth-2 full
-    // let mut results: Vec<(String, usize)> =
-    //    (0..totalwords).into_par_iter().flat_map_iter(|i| (i..totalwords).map(move |j| (i,j)))
-    //    .map(|(i, j)| find_worstcase([i, j], &wordcache)).collect();
+    let mut results: Vec<(String, usize)> =
+       (0..totalwords).into_par_iter().flat_map_iter(|i| (i..totalwords).map(move |j| (i,j)))
+       .map(|(i, j)| find_worstcase([i, j], &wordcache)).collect();
     
     // Depth-1 full
     // let mut results: Vec<(String, usize)> =
@@ -196,13 +196,13 @@ fn main() {
     //    .map(|i| find_worstcase([i], &wordcache)).collect();
 
     // Depth-3 (word1,word2,?)
-    let i1 = find_word_id_from_str("CARET", &wordcache[&0]);
-    let i2 = find_word_id_from_str("SOLID", &wordcache[&0]);
-    let i3 = find_word_id_from_str("NYMPH", &wordcache[&0]);
-    let i4 = find_word_id_from_str("FIFTH", &wordcache[&0]);
-    let mut results: Vec<(String, usize)> =
-       (0..totalwords).into_par_iter()
-       .map(|i| find_worstcase([i1, i2, i3, i4, i], &wordcache)).collect();
+    // let i1 = find_word_id_from_str("CARET", &wordcache[&0]);
+    // let i2 = find_word_id_from_str("SOLID", &wordcache[&0]);
+    // let i3 = find_word_id_from_str("NYMPH", &wordcache[&0]);
+    // let i4 = find_word_id_from_str("FIFTH", &wordcache[&0]);
+    // let mut results: Vec<(String, usize)> =
+    //    (0..totalwords).into_par_iter()
+    //    .map(|i| find_worstcase([i1, i2, i3, i4, i], &wordcache)).collect();
     
     results.sort_by_key(|r| r.1);
     let results_strs: Vec<String> = results.iter().map(|r| r.0.clone()).collect();
