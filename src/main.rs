@@ -1,92 +1,65 @@
 #![allow(dead_code)]
 #![allow(unused_imports)]
-use core::ops::Index;
 use std::io::{self, Write};
 use std::fs;
-use std::collections::{HashMap, BTreeMap};
 use bitintr::{Lzcnt, Tzcnt};
 use regex::Regex;
 use rayon::prelude::*;
 use itertools::zip;
 use array_init::array_init;
 
-// use ahash::{AHasher, RandomState};
-// use xxhash_rust::xxh3::Xxh3;
-// use std::hash::BuildHasherDefault;
+pub type Charmask = i32;
+pub type Achar = i8;  // ASCII char
 
-type Charmask = i32;
-type Achar = i8;  // ASCII char
-
-const WORD_LENGTH: usize = 5;
-const WORD_LENGTH_P: usize = 5;  // Padded for SIMD shenanigans
-const GUESS_DEPTH: usize = 1;  // TODO: Change this whenever working at different depths
-const N_SOLUTIONS: usize = 2315;
-const CACHE_SIZE: usize = 1<<26;
-const IDX_ALL_WORDS: Charmask = (CACHE_SIZE as Charmask) - 1;
-const IDX_VALID_SOLUTIONS: Charmask = 0;
-const A: Achar = 'A' as Achar;
-const Z: Achar = 'Z' as Achar;
+pub const WORD_LENGTH: usize = 5;
+pub const WORD_LENGTH_P: usize = 5;  // Padded for SIMD shenanigans
+pub const GUESS_DEPTH: usize = 1;  // TODO: Change this whenever working at different depths
+pub const N_SOLUTIONS: usize = 2315;
+pub const CACHE_SIZE: usize = 1<<26;
+pub const IDX_ALL_WORDS: Charmask = (CACHE_SIZE as Charmask) - 1;
+pub const IDX_VALID_SOLUTIONS: Charmask = 0;
+pub const A: Achar = 'A' as Achar;
+pub const Z: Achar = 'Z' as Achar;
 
 #[derive(Copy, Clone, Default)]
-struct Word {
+pub struct Word {
     charbits: [Charmask; WORD_LENGTH_P],  // Each letter in bitmask form
     charmask: Charmask,                   // All of the characters contained
     //letters: [Achar; WORD_LENGTH]
 }
 
-type TKeys = Charmask; // I give up on making this generic for now
-struct ThinArray<T, const N_KEYS: usize, const CAPACITY: usize> {
-    // keys: [TKeys; N_KEYS],
-    keys: Vec<TKeys>,
-    items: [T; CAPACITY],
-    items_used: usize,
-}
 
-impl<T: Default, const N_KEYS: usize, const CAPACITY: usize> ThinArray<T, N_KEYS, CAPACITY> {
-    fn default() -> Self {
-        // println!("Initializing ThinArray");
-        Self{
-            // keys: [0; N_KEYS],
-            items: array_init::array_init(|_| T::default()),
-            keys: (0..N_KEYS).map(|_| 0).collect(),
-            items_used: 0,
-        }
-    }
+#[cfg(use_thin_array)]
+mod thin_array;
+#[cfg(use_thin_array)]
+type WordCache = thin_array::ThinArray<Vec<Word>, CACHE_SIZE, 7000>;
 
-    fn insert(&mut self, key: TKeys, value: T) {
-        // println!("Insert requested for key {}", key);
-        debug_assert!(self.items_used < CAPACITY);
-        self.items_used += 1;
-        self.items[self.items_used as usize] = value;
-        // self.items.push(value);
-        self.keys[key as usize] = self.items_used as TKeys;
-    }
+#[cfg(all(not(use_thin_array), use_hashmap))]
+use std::collections::HashMap;
+#[cfg(all(not(use_thin_array), use_hashmap))]
+type WordCache = HashMap<Charmask, Vec<Word>>;  // Default hash is slower than BTree on M1
 
-    fn get(&self, key: TKeys) -> &T {
-        &self.items[self.keys[key as usize] as usize]
-    }
+#[cfg(all(not(use_thin_array), not(use_hashmap), feature = "ahash"))]
+use std::collections::HashMap;
+#[cfg(all(not(use_thin_array), not(use_hashmap), feature = "ahash"))]
+use ahash::{AHasher, RandomState};
+#[cfg(all(not(use_thin_array), not(use_hashmap), feature = "ahash"))]
+type WordCache = HashMap<Charmask, Vec<Word>, RandomState>;
 
-    fn contains_key(&self, _key: &TKeys) -> bool {
-        true
-        // key < N_KEYS
-    }
-}
-impl<T: Default, const N_KEYS: usize, const CAPACITY: usize> Index<&TKeys> for ThinArray<T, N_KEYS, CAPACITY> {
-    type Output = T;
+#[cfg(all(not(use_thin_array), not(use_hashmap), not(feature = "ahash"), feature = "xxhash_rust"))]
+use std::collections::HashMap;
+#[cfg(all(not(use_thin_array), not(use_hashmap), not(feature = "ahash"), feature = "xxhash_rust"))]
+use xxhash_rust::xxh3::Xxh3;
+#[cfg(all(not(use_thin_array), not(use_hashmap), not(feature = "ahash"), feature = "xxhash_rust"))]
+use std::hash::BuildHasherDefault;
+#[cfg(all(not(use_thin_array), not(use_hashmap), not(feature = "ahash"), feature = "xxhash_rust"))]
+type WordCache = HashMap<Charmask, Vec<Word>, BuildHasherDefault<Xxh3>>;
 
-    fn index(&self, key: &TKeys) -> &T {
-        // println!("Key requested: {}", key);
-        &self.items[self.keys[*key as usize] as usize]
-    }
-}
+#[cfg(all(not(use_thin_array), not(use_hashmap), not(feature = "ahash"), not(feature = "xxhash_rust")))]
+use std::collections::BTreeMap;
+#[cfg(all(not(use_thin_array), not(use_hashmap), not(feature = "ahash"), not(feature = "xxhash_rust")))]
+type WordCache = BTreeMap<Charmask, Vec<Word>>;
 
-
-// type WordCache = HashMap<Charmask, Vec<Word>, RandomState>;  // ahash
-// type WordCache = HashMap<Charmask, Vec<Word>, BuildHasherDefault<Xxh3>>;
-// type WordCache = BTreeMap<Charmask, Vec<Word>>;
-type WordCache = ThinArray<Vec<Word>, CACHE_SIZE, 7000>;
-// type WordCache = HashMap<Charmask, Vec<Word>>;  // Default hash is slower than BTree on M1
-// type WordCacheArr = [&Vec<Word>; CACHE_SIZE];
 
 fn default_wordcache() -> WordCache {
     WordCache::default()
