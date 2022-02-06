@@ -1,8 +1,7 @@
 #![allow(dead_code)]
 #![allow(unused_imports)]
-use std::io::{self, Write};
-use std::fs;
-use bitintr::{Lzcnt, Tzcnt};
+use std::{env, fs};
+// use bitintr::Lzcnt;
 use regex::Regex;
 use rayon::prelude::*;
 use itertools::zip;
@@ -20,6 +19,8 @@ pub const IDX_ALL_WORDS: Charmask = (CACHE_SIZE as Charmask) - 1;
 pub const IDX_VALID_SOLUTIONS: Charmask = 0;
 pub const A: Achar = 'A' as Achar;
 pub const Z: Achar = 'Z' as Achar;
+
+pub const MAX_ENTRIES_PER_JOB: usize = 1000;
 
 #[derive(Copy, Clone, Default)]
 pub struct Word {
@@ -71,18 +72,6 @@ fn char2bit(c: Achar) -> Charmask {
     1 << (c - A)
 }
 
-fn cm2char(cm: Charmask, offset: i8) -> Achar {
-    (((31 - cm.lzcnt() as i8) + A + offset) as u8) as Achar
-}
-
-fn letters2str(letters: [Achar; WORD_LENGTH]) -> String {
-    letters.iter().map(|x| (*x as u8) as char).collect()
-}
-
-fn charbits2str(charbits: [Charmask; WORD_LENGTH]) -> String {
-    charbits.iter().map(|x| (cm2char(*x, 0) as u8) as char).collect()
-}
-
 fn str2word(s: &str) -> Word {
     let mut word = Word::default();
     let mut iter = s.chars();
@@ -95,6 +84,18 @@ fn str2word(s: &str) -> Word {
     }
     word
 }
+
+/* fn cm2char(cm: Charmask, offset: i8) -> Achar {
+    (((31 - cm.lzcnt() as i8) + A + offset) as u8) as Achar
+}
+
+fn letters2str(letters: [Achar; WORD_LENGTH]) -> String {
+    letters.iter().map(|x| (*x as u8) as char).collect()
+}
+
+fn charbits2str(charbits: [Charmask; WORD_LENGTH]) -> String {
+    charbits.iter().map(|x| (cm2char(*x, 0) as u8) as char).collect()
+} */
 
 /* fn inc_char(c: char) -> char {
     (c as u8 + 1) as char
@@ -120,7 +121,7 @@ fn str2word(s: &str) -> Word {
     s
 } */
 
-fn load_dictionary(filename: &str) -> Vec<Word> {
+fn load_dictionary(filename: &str) -> Vec<String> {
     println!("Loading dictionary at {}", filename);
     let rawfile = fs::read_to_string(filename).unwrap();
     let rawwords = rawfile.split('\n');
@@ -133,17 +134,17 @@ fn load_dictionary(filename: &str) -> Vec<Word> {
     }
     //words.sort();
     //words.dedup();
-    words.iter().map(|w| str2word(w)).collect()
+    words
 }
 
-fn _generate_wordcache_nested(cache: &mut WordCache, subcache: &[Word], key: Charmask, depth: u8) {
-    for c in cm2char(key, 1)..=Z {
+fn _generate_wordcache_nested(cache: &mut WordCache, subcache: &[Word], key: Charmask, next_c: Achar, depth: u8) {
+    for c in next_c..=Z {
         let cb = char2bit(c);
         let sc2: Vec<Word> = subcache.iter().filter(|w| (w.charmask & cb) == cb).cloned().collect();
         if !sc2.is_empty() {
             let key2 = key | cb;
             if depth > 0 {
-                _generate_wordcache_nested(cache, &sc2, key2, depth-1);
+                _generate_wordcache_nested(cache, &sc2, key2, c+1, depth-1);
             }
             cache.insert(key2, sc2);
         }
@@ -153,7 +154,7 @@ fn _generate_wordcache_nested(cache: &mut WordCache, subcache: &[Word], key: Cha
 fn generate_wordcache(valid_words: Vec<Word>) -> WordCache {
     let mut cache: WordCache = default_wordcache();
     let valid_solutions: Vec<Word> = valid_words[..N_SOLUTIONS].to_vec();  // Hacky way to separate the valid solutions from the larger guessing list
-    _generate_wordcache_nested(&mut cache, &valid_solutions, 0, 5);
+    _generate_wordcache_nested(&mut cache, &valid_solutions, 0, A, 5);
     cache.insert(IDX_VALID_SOLUTIONS, valid_solutions);
     cache.insert(IDX_ALL_WORDS, valid_words);
     cache
@@ -163,7 +164,7 @@ fn filter_word(w: &[Charmask; WORD_LENGTH_P], banned_chars: &[Charmask; WORD_LEN
     zip(w, banned_chars).all(|(x,y)| x & y == 0)
 }
 
-fn aggregate_guesses(guess_ids: Vec<usize>, wordcache: &WordCache) -> Word {
+fn aggregate_guesses(guess_ids: &Vec<usize>, wordcache: &WordCache) -> Word {
     //guess_ids.iter().reduce(|out, g| out |= wordcache[IDX_ALL_WORDS][g]).unwrap()
     let all_words = &wordcache[&IDX_ALL_WORDS];
     let mut iter = guess_ids.iter();
@@ -178,8 +179,8 @@ fn aggregate_guesses(guess_ids: Vec<usize>, wordcache: &WordCache) -> Word {
     aggregate_guess
 }
 
-fn simulate(guess: Word, wordcache: &WordCache) -> (String, usize) {
-    let valid_words = &wordcache[&IDX_ALL_WORDS];
+fn simulate(guess: Word, wordcache: &WordCache) -> (usize, usize) {
+    // let valid_words = &wordcache[&IDX_ALL_WORDS];
     let valid_solutions = &wordcache[&IDX_VALID_SOLUTIONS];
 
     let required_chars: [Charmask; N_SOLUTIONS] = array_init::from_iter(
@@ -226,55 +227,95 @@ fn simulate(guess: Word, wordcache: &WordCache) -> (String, usize) {
             }
         }
     }
-    
-    let wordstr: String = charbits2str(guess.charbits);  // THIS IS NOT SUITED FOR AGGREGATE GUESSES YET!
-    let worststr: String = charbits2str(valid_words[worst_w].charbits);
-    let output = format!("{} - {} ({})", wordstr, worst, worststr);
-    (output, worst)
+    (worst, worst_w)
 }
 
-fn find_word_id_from_str(s: &str, words: &Vec<Word>) -> usize {
-    let w = str2word(s);
-    words.iter().position(|x| x.charbits==w.charbits).unwrap()
+fn calculate_best(w1start: usize, w1end: usize, total: usize, wordcache: &WordCache) -> Vec<(Vec<usize>, (usize, usize))> {
+    println!("Starting from word #{} to ending word #{}.", w1start, w1end);
+    let mut guess_ids: Vec<Vec<usize>> = Vec::default();
+    for i1 in w1start..w1end {
+        for i2 in i1..total {
+            guess_ids.push(vec![i1,i2])
+        }
+    }
+    let guesses: Vec<Word> = guess_ids.iter().map(|i| aggregate_guesses(&i, &wordcache)).collect();
+    println!("This consists of {} guess combinations", guess_ids.len());
+
+    let mut results: Vec<(Vec<usize>, (usize, usize))> =
+        (0..guess_ids.len()).into_par_iter()
+        .map(|i| (guess_ids[i].clone(), simulate(guesses[i], &wordcache)))
+        .collect();
+    // results.sort_by_key(|(_guess, (worst, _solution))| worst);
+    results.sort_by_key(|x| x.1.0);
+    println!("Processed {} guesses from starting word #{} to ending word #{}.", results.len(), w1start, w1end);
+    results
+}
+
+fn guess2str(guess: &Vec<usize>, word_strs: &Vec<String>) -> String {
+    let strs: Vec<String> = guess.iter().map(|i| word_strs[*i].clone()).collect();
+    strs.join(",")
 }
 
 fn main() {
     eprint!("Hello, world!\n");
-    // io::stdout().flush().unwrap();
+    // Prints each argument on a separate line
+    for argument in env::args() {
+        print!("{}\t", argument);
+    }
     fs::write("test.txt", ["test1", "test2", "test3"].join("\n")).expect("Failed to write output");
-    let words = load_dictionary("words-kura");
-    let totalwords = words.len();
+    let word_strs: Vec<String> = load_dictionary("words-kura");
+    let totalwords = word_strs.len();
+    let words: Vec<Word> = word_strs.iter().map(|w| str2word(w)).collect();
     println!("Loaded dict - {} words in dict", totalwords);
     let wordcache = generate_wordcache(words);
-    let all_words = &wordcache[&IDX_ALL_WORDS];
+    //let all_words = &wordcache[&IDX_ALL_WORDS];
     // println!("Cache contains {} keys", wordcache.keys().len());  // 6756 on words-kura
 
-
-    //let sr = simulate(&wordcache[""][0], &wordcache[""][5000], &wordcache);
-    //println!("{:?}", sr);
-    
-    //(0..=5).flat_map(|i| (i..=5).map(move |j| (i,j))).map(|(i,j)| print!("{},{}\t", i, j));
-    
-    // Depth-2 full
-    // let mut results: Vec<(String, usize)> =
-    //    (0..totalwords).into_par_iter().flat_map_iter(|i| (i..totalwords).map(move |j| (i,j)))
-    //    .map(|(i, j)| find_worstcase([i, j], &wordcache)).collect();
+    let args: Vec<String> = env::args().collect();
+    let mut w1start: usize = 0;
+    let mut w1end: usize = totalwords.min(1000);
+    match args.len() {
+        3 => {
+            let s_w1start = &args[1];
+            let s_w1end = &args[2];
+            // parse the numbers
+            w1start = match s_w1start.parse() {
+                Ok(n) => n,
+                Err(_) => {
+                    eprintln!("error: not a valid start point");
+                    return;
+                },
+            };
+            w1end = match s_w1end.parse() {
+                Ok(n) => totalwords.min(n),
+                Err(_) => {
+                    eprintln!("error: not a valid end point");
+                    return;
+                },
+            };
+        },
+        _ => {
+            w1start = 0;
+        }
+    }
     
     // Depth-1 full
-    let mut results: Vec<(String, usize)> = (0..totalwords).into_par_iter().map(|i| simulate(all_words[i], &wordcache)).collect();
-    for _ in 0..9 {  // Benching
-        results = (0..totalwords).into_par_iter().map(|i| simulate(all_words[i], &wordcache)).collect();
-    }
-
-    // Depth-3 (word1,word2,?)
-    // let i1 = find_word_id_from_str("CARET", &wordcache[&0]);
-    // let i2 = find_word_id_from_str("SOLID", &wordcache[&0]);
-    // let i3 = find_word_id_from_str("NYMPH", &wordcache[&0]);
-    // let i4 = find_word_id_from_str("FIFTH", &wordcache[&0]);
-    // let mut results: Vec<(String, usize)> =
-    //    (0..totalwords).into_par_iter().map(|i| find_worstcase([i1, i2, i3, i4, i], &wordcache)).collect();
+    //let mut results: Vec<(String, usize)> = (0..totalwords).into_par_iter().map(|i| simulate(all_words[i], &wordcache)).collect();
+    // for _ in 0..9 {  // Benching
+    //     results = (0..totalwords).into_par_iter().map(|i| simulate(all_words[i], &wordcache)).collect();
+    // }
     
-    results.sort_by_key(|r| r.1);
-    let results_strs: Vec<String> = results.iter().map(|r| r.0.clone()).collect();
-    fs::write("results.txt", results_strs.join("\n")).expect("Failed to write output");
+
+    let results = calculate_best(w1start, w1end, totalwords, &wordcache);
+    let trim = (results.len() - MAX_ENTRIES_PER_JOB).max(0);
+    println!("\tBest score {}, worst {}. Discarding worst {} entries to leave maximum of {}.", results[0].1.0, results.last().unwrap().1.0, trim, MAX_ENTRIES_PER_JOB);
+    let results_strs: Vec<String> = 
+        results.iter().take(MAX_ENTRIES_PER_JOB.min(results.len()))
+        .map(
+            |(guess, (worst, solution))|  format!("{}\t{} ({})", worst, guess2str(guess, &word_strs), word_strs[*solution])
+        ).collect();
+    
+
+    //let results_strs: Vec<String> = results.iter().map(|r| r.0.clone()).collect();
+    fs::write(format!("results_from_{}_to_{}.txt", w1start, w1end), results_strs.join("\n")).expect("Failed to write output");
 }
