@@ -1,5 +1,7 @@
 #![allow(dead_code)]
 #![allow(unused_imports)]
+use core::ops::Index;
+use std::io::{self, Write};
 use std::fs;
 use std::collections::{HashMap, BTreeMap};
 use bitintr::{Lzcnt, Tzcnt};
@@ -32,10 +34,58 @@ struct Word {
     //letters: [Achar; WORD_LENGTH]
 }
 
+type TKeys = Charmask; // I give up on making this generic for now
+struct ThinArray<T, const N_KEYS: usize, const CAPACITY: usize> {
+    // keys: [TKeys; N_KEYS],
+    keys: Vec<TKeys>,
+    items: [T; CAPACITY],
+    items_used: usize,
+}
+
+impl<T: Default, const N_KEYS: usize, const CAPACITY: usize> ThinArray<T, N_KEYS, CAPACITY> {
+    fn default() -> Self {
+        // println!("Initializing ThinArray");
+        Self{
+            // keys: [0; N_KEYS],
+            items: array_init::array_init(|_| T::default()),
+            keys: (0..N_KEYS).map(|_| 0).collect(),
+            items_used: 0,
+        }
+    }
+
+    fn insert(&mut self, key: TKeys, value: T) {
+        // println!("Insert requested for key {}", key);
+        debug_assert!(self.items_used < CAPACITY);
+        self.items_used += 1;
+        self.items[self.items_used as usize] = value;
+        // self.items.push(value);
+        self.keys[key as usize] = self.items_used as TKeys;
+    }
+
+    fn get(&self, key: TKeys) -> &T {
+        &self.items[self.keys[key as usize] as usize]
+    }
+
+    fn contains_key(&self, _key: &TKeys) -> bool {
+        true
+        // key < N_KEYS
+    }
+}
+impl<T: Default, const N_KEYS: usize, const CAPACITY: usize> Index<&TKeys> for ThinArray<T, N_KEYS, CAPACITY> {
+    type Output = T;
+
+    fn index(&self, key: &TKeys) -> &T {
+        // println!("Key requested: {}", key);
+        &self.items[self.keys[*key as usize] as usize]
+    }
+}
+
+
 // type WordCache = HashMap<Charmask, Vec<Word>, RandomState>;  // ahash
 // type WordCache = HashMap<Charmask, Vec<Word>, BuildHasherDefault<Xxh3>>;
-type WordCache = BTreeMap<Charmask, Vec<Word>>;
-// type WordCache = HashMap<Charmask, Vec<Word>>;  // Default hash is slower than BTree
+// type WordCache = BTreeMap<Charmask, Vec<Word>>;
+type WordCache = ThinArray<Vec<Word>, CACHE_SIZE, 7000>;
+// type WordCache = HashMap<Charmask, Vec<Word>>;  // Default hash is slower than BTree on M1
 // type WordCacheArr = [&Vec<Word>; CACHE_SIZE];
 
 fn default_wordcache() -> WordCache {
@@ -216,12 +266,16 @@ fn find_word_id_from_str(s: &str, words: &Vec<Word>) -> usize {
 }
 
 fn main() {
+    eprint!("Hello, world!\n");
+    // io::stdout().flush().unwrap();
     fs::write("test.txt", ["test1", "test2", "test3"].join("\n")).expect("Failed to write output");
     let words = load_dictionary("words-kura");
     let totalwords = words.len();
-    println!("Hello, world! {} words in dict", totalwords);
+    println!("Loaded dict - {} words in dict", totalwords);
     let wordcache = generate_wordcache(words);
     let all_words = &wordcache[&IDX_ALL_WORDS];
+    // println!("Cache contains {} keys", wordcache.keys().len());  // 6756 on words-kura
+
 
     //let sr = simulate(&wordcache[""][0], &wordcache[""][5000], &wordcache);
     //println!("{:?}", sr);
@@ -250,8 +304,4 @@ fn main() {
     results.sort_by_key(|r| r.1);
     let results_strs: Vec<String> = results.iter().map(|r| r.0.clone()).collect();
     fs::write("results.txt", results_strs.join("\n")).expect("Failed to write output");
-
-    // let mut cachekeys: Vec<String> = wordcache.keys().map(|k| charmask2str(*k)).collect();
-    // cachekeys.sort();
-    // println!("{:?}", cachekeys);
 }
