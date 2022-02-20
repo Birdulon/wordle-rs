@@ -179,7 +179,7 @@ fn aggregate_guesses(guess_ids: &Vec<usize>, wordcache: &WordCache) -> Word {
     aggregate_guess
 }
 
-fn simulate(guess: Word, wordcache: &WordCache) -> (usize, usize) {
+fn simulate(guess: Word, wordcache: &WordCache) -> (usize, usize, Vec<usize>) {
     // let valid_words = &wordcache[&IDX_ALL_WORDS];
     let valid_solutions = &wordcache[&IDX_VALID_SOLUTIONS];
 
@@ -209,51 +209,109 @@ fn simulate(guess: Word, wordcache: &WordCache) -> (usize, usize) {
 
     let mut worst = 0;
     let mut worst_w = 0;
+    let mut worst_list_w: Vec<&Word> = vec![];
     for target_id in 0..N_SOLUTIONS {   
         let cachekey = required_chars[target_id];
         if wordcache.contains_key(&cachekey) {
             let mut remaining = 0;
+            let mut words = vec![];
             for word in &wordcache[&cachekey] {
                 // TODO: test branchless toggle
                 let mut error = 0;
                 for c in 0..WORD_LENGTH {
                     error += word.charbits[c] & banned_chars[target_id*WORD_LENGTH + c];
                 }
-                remaining += (error == 0) as usize;
+                // remaining += (error == 0) as usize;
+                if error == 0 {
+                    remaining += 1;
+                    words.push(word);
+                }
             }
             if remaining > worst {
                 worst = remaining;
                 worst_w = target_id;
+                worst_list_w = words;
             }
         }
     }
-    (worst, worst_w)
+    let worst_list = worst_list_w.iter().map(|w| valid_solutions.iter().position(|x| x.charbits==w.charbits).unwrap()).collect();
+    (worst, worst_w, worst_list)
 }
 
-fn calculate_best(w1start: usize, w1end: usize, total: usize, wordcache: &WordCache) -> Vec<(Vec<usize>, (usize, usize))> {
-    println!("Starting from word #{} to ending word #{}.", w1start, w1end);
-    let mut guess_ids: Vec<Vec<usize>> = Vec::default();
-    for i1 in w1start..w1end {
-        for i2 in i1..total {
-            guess_ids.push(vec![i1,i2])
-        }
-    }
-    let guesses: Vec<Word> = guess_ids.iter().map(|i| aggregate_guesses(&i, &wordcache)).collect();
-    println!("This consists of {} guess combinations", guess_ids.len());
+// fn calculate_best(w1start: usize, w1end: usize, total: usize, wordcache: &WordCache) -> Vec<(Vec<usize>, (usize, usize))> {
+//     println!("Starting from word #{} to ending word #{}.", w1start, w1end);
+//     let mut guess_ids: Vec<Vec<usize>> = Vec::default();
+//     for i1 in w1start..w1end {
+//         for i2 in i1..total {
+//             guess_ids.push(vec![i1,i2])
+//         }
+//     }
+//     let guesses: Vec<Word> = guess_ids.iter().map(|i| aggregate_guesses(&i, &wordcache)).collect();
+//     println!("This consists of {} guess combinations", guess_ids.len());
 
-    let mut results: Vec<(Vec<usize>, (usize, usize))> =
-        (0..guess_ids.len()).into_par_iter()
-        .map(|i| (guess_ids[i].clone(), simulate(guesses[i], &wordcache)))
+//     let mut results: Vec<(Vec<usize>, (usize, usize))> =
+//         (0..guess_ids.len()).into_par_iter()
+//         .map(|i| (guess_ids[i].clone(), simulate(guesses[i], &wordcache)))
+//         .collect();
+//     // results.sort_by_key(|(_guess, (worst, _solution))| worst);
+//     results.sort_by_key(|x| x.1.0);
+//     println!("Processed {} guesses from starting word #{} to ending word #{}.", results.len(), w1start, w1end);
+//     results
+// }
+
+fn agg_guesses(w1: &Word, w2: &Word) -> Word {
+    let mut g: Word = *w1;
+    for i in 0..g.charbits.len() {
+        g.charbits[i] |= w2.charbits[i];
+    }
+    g.charmask |= w2.charmask;
+    g
+}
+
+fn aggregate_guesses2(guess_ids: &[usize], wordcache: &WordCache) -> Vec<Word> {
+    //guess_ids.iter().reduce(|out, g| out |= wordcache[IDX_ALL_WORDS][g]).unwrap()
+    let all_words = &wordcache[&IDX_ALL_WORDS];
+    let mut iter = guess_ids.iter();
+    let mut aggregate_guess = all_words[*iter.next().unwrap()];
+    for g in iter {
+        let guess = all_words[*g];
+        for i in 0..aggregate_guess.charbits.len() {
+            aggregate_guess.charbits[i] |= guess.charbits[i];
+        }
+        aggregate_guess.charmask |= guess.charmask;
+    }
+
+    all_words.iter().map(|w| agg_guesses(&aggregate_guess, w)).collect()
+}
+
+fn calculate_best2(seed: &[usize], wordcache: &WordCache) -> Vec<(usize, (usize, usize, Vec<usize>))> {
+    println!("Aggregating guesses");
+    let guesses: Vec<Word> = aggregate_guesses2(seed, &wordcache);
+    println!("This consists of {} guess combinations", guesses.len());
+
+    let mut results: Vec<(usize, (usize, usize, Vec<usize>))> =
+        (0..guesses.len()).into_par_iter()
+        .map(|i| (i, simulate(guesses[i], &wordcache)))
         .collect();
     // results.sort_by_key(|(_guess, (worst, _solution))| worst);
     results.sort_by_key(|x| x.1.0);
-    println!("Processed {} guesses from starting word #{} to ending word #{}.", results.len(), w1start, w1end);
+    println!("Processed {} guesses.", results.len());
     results
 }
 
-fn guess2str(guess: &Vec<usize>, word_strs: &Vec<String>) -> String {
+fn guess2str(guess: &[usize], word_strs: &[String]) -> String {
     let strs: Vec<String> = guess.iter().map(|i| word_strs[*i].clone()).collect();
     strs.join(",")
+}
+
+fn find_word_id_from_str(s: &str, words: &Vec<Word>) -> usize {
+    let w = str2word(s);
+    words.iter().position(|x| x.charbits==w.charbits).unwrap()
+}
+
+fn format_ids(ids: &Vec<usize>, word_strs: &Vec<String>) -> String {
+    let s: Vec<String> = ids.iter().map(|i| word_strs[*i].to_string()).collect();
+    s.join(",")
 }
 
 fn main() {
@@ -271,51 +329,71 @@ fn main() {
     //let all_words = &wordcache[&IDX_ALL_WORDS];
     // println!("Cache contains {} keys", wordcache.keys().len());  // 6756 on words-kura
 
-    let args: Vec<String> = env::args().collect();
-    let mut w1start: usize = 0;
-    let mut w1end: usize = totalwords.min(1000);
-    match args.len() {
-        3 => {
-            let s_w1start = &args[1];
-            let s_w1end = &args[2];
-            // parse the numbers
-            w1start = match s_w1start.parse() {
-                Ok(n) => n,
-                Err(_) => {
-                    eprintln!("error: not a valid start point");
-                    return;
-                },
-            };
-            w1end = match s_w1end.parse() {
-                Ok(n) => totalwords.min(n),
-                Err(_) => {
-                    eprintln!("error: not a valid end point");
-                    return;
-                },
-            };
-        },
-        _ => {
-            w1start = 0;
-        }
-    }
+    // let args: Vec<String> = env::args().collect();
+    // let mut w1start: usize = 0;
+    // let mut w1end: usize = totalwords.min(1000);
+    // match args.len() {
+    //     3 => {
+    //         let s_w1start = &args[1];
+    //         let s_w1end = &args[2];
+    //         // parse the numbers
+    //         w1start = match s_w1start.parse() {
+    //             Ok(n) => n,
+    //             Err(_) => {
+    //                 eprintln!("error: not a valid start point");
+    //                 return;
+    //             },
+    //         };
+    //         w1end = match s_w1end.parse() {
+    //             Ok(n) => totalwords.min(n),
+    //             Err(_) => {
+    //                 eprintln!("error: not a valid end point");
+    //                 return;
+    //             },
+    //         };
+    //     },
+    //     _ => {
+    //         w1start = 0;
+    //     }
+    // }
     
     // Depth-1 full
     //let mut results: Vec<(String, usize)> = (0..totalwords).into_par_iter().map(|i| simulate(all_words[i], &wordcache)).collect();
     // for _ in 0..9 {  // Benching
     //     results = (0..totalwords).into_par_iter().map(|i| simulate(all_words[i], &wordcache)).collect();
     // }
-    
 
-    let results = calculate_best(w1start, w1end, totalwords, &wordcache);
-    let trim = (results.len() - MAX_ENTRIES_PER_JOB).max(0);
-    println!("\tBest score {}, worst {}. Discarding worst {} entries to leave maximum of {}.", results[0].1.0, results.last().unwrap().1.0, trim, MAX_ENTRIES_PER_JOB);
-    let results_strs: Vec<String> = 
-        results.iter().take(MAX_ENTRIES_PER_JOB.min(results.len()))
-        .map(
-            |(guess, (worst, solution))|  format!("{}\t{} ({})", worst, guess2str(guess, &word_strs), word_strs[*solution])
-        ).collect();
+    // Depth-3 (word1,word2,?)
+    println!("Finding seed words...");
+    let i1: usize = 10186-3;  //find_word_id_from_str("SALET", &wordcache[&0]);
+    let i2: usize = 4191-3;  //find_word_id_from_str("COURD", &wordcache[&0]);
+    let i3: usize = 285-1;  //find_word_id_from_str("NYMPH", &wordcache[&0]);
+    let i4: usize = 924-1;  //find_word_id_from_str("BILGE", &wordcache[&0]);
+    println!("Seed words found");
+
+    let results: Vec<(usize, (usize, usize, Vec<usize>))> = calculate_best2(&[i1, i2, i3], &wordcache);
+    println!("\tBest score {}, worst {}.", results[0].1.0, results.last().unwrap().1.0);
+    let results_strs: Vec<String> = results.iter().map(
+        |(guess, (worst, solution, ids))|
+        format!("{}\t{} ({}) ({})", worst, guess2str(&[i1,i2,i3,*guess], &word_strs), word_strs[*solution], format_ids(ids, &word_strs))
+    ).collect();
+    fs::write(format!("results_multi_{}_{}_{}.txt", i1, i2, i3), results_strs.join("\n")).expect("Failed to write output");
+
+    // let results: Vec<(usize, (usize, usize, Vec<usize>))> = calculate_best2(&[i1, i2, i3, i4], &wordcache);
+    // println!("\tBest score {}, worst {}.", results[0].1.0, results.last().unwrap().1.0);
+    // let results_strs: Vec<String> = results.iter().map(|(guess, (worst, solution, ids))|  format!("{}\t{} ({})", worst, guess2str(&[i1,i2,i3,i4,*guess], &word_strs), word_strs[*solution])).collect();
+    // fs::write(format!("results_multi_{}_{}_{}_{}.txt", i1, i2, i3, i4), results_strs.join("\n")).expect("Failed to write output");
+
+    // let results = calculate_best(w1start, w1end, totalwords, &wordcache);
+    // let trim = (results.len() - MAX_ENTRIES_PER_JOB).max(0);
+    // println!("\tBest score {}, worst {}. Discarding worst {} entries to leave maximum of {}.", results[0].1.0, results.last().unwrap().1.0, trim, MAX_ENTRIES_PER_JOB);
+    // let results_strs: Vec<String> = 
+    //     results.iter().take(MAX_ENTRIES_PER_JOB.min(results.len()))
+    //     .map(
+    //         |(guess, (worst, solution))|  format!("{}\t{} ({})", worst, guess2str(guess, &word_strs), word_strs[*solution])
+    //     ).collect();
     
 
     //let results_strs: Vec<String> = results.iter().map(|r| r.0.clone()).collect();
-    fs::write(format!("results_from_{}_to_{}.txt", w1start, w1end), results_strs.join("\n")).expect("Failed to write output");
+    // fs::write(format!("results_from_{}_to_{}.txt", w1start, w1end), results_strs.join("\n")).expect("Failed to write output");
 }
